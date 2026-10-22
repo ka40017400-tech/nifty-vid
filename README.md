@@ -125,3 +125,4 @@ MIT. See [LICENSE](LICENSE).
 ---
 
 Part of the [**NiftyAi**](https://github.com/IgorCSIS/niftyai-portfolio) project family by [Igor Lima](https://github.com/IgorCSIS). Companion to [NiftyStats](https://github.com/IgorCSIS/niftystats).
+تغیی آزمایشی
