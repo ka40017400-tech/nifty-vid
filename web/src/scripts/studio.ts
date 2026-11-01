@@ -281,63 +281,73 @@ async function consumeSseUntilComplete(stream: ReadableStream<Uint8Array>): Prom
   const decoder = new TextDecoder();
   let buffer = "";
 
+  const handleEvent = (raw: string): string | null => {
+    const evt = parseSseEvent(raw);
+    if (!evt) return null;
+
+    if (evt.name === "complete") {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(evt.data);
+      } catch {
+        throw new Error(`Gradio sent an invalid completion payload: ${evt.data.slice(0, 300)}`);
+      }
+      const first = Array.isArray(payload) ? payload[0] : null;
+      const url = extractVideoUrl(first);
+      if (!url) {
+        throw new Error(`Gradio completed without a video file. Response: ${JSON.stringify(payload).slice(0, 500)}`);
+      }
+      return url;
+    }
+
+    if (evt.name === "error") {
+      const rawData = evt.data.trim();
+      if (!rawData || rawData === "null" || rawData === "undefined") {
+        throw new Error("Hugging Face returned an empty error event (null). The Space may have stopped the GPU job; try again later.");
+      }
+      try {
+        const parsed: unknown = JSON.parse(rawData);
+        if (typeof parsed === "string" && parsed.trim()) throw new Error(parsed);
+        if (parsed && typeof parsed === "object") {
+          const detail = parsed as { message?: string; error?: string };
+          const message = detail.message || detail.error;
+          if (message) throw new Error(message);
+        }
+        throw new Error(`Hugging Face error event: ${JSON.stringify(parsed).slice(0, 500)}`);
+      } catch (err) {
+        if (err instanceof Error && err.message !== "Unexpected end of JSON input") throw err;
+        throw new Error(`Hugging Face error event: ${rawData.slice(0, 500)}`);
+      }
+    }
+    return null;
+  };
+
   while (true) {
     const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
 
-    // SSE event boundary is a blank line. Pull off completed events, keep the
-    // trailing partial chunk in the buffer for the next read.
-    const parts = buffer.split("\n\n");
+    // Accept both LF and CRLF event separators used by different SSE servers.
+    const parts = buffer.split(/\r?\n\r?\n/);
     buffer = parts.pop() ?? "";
-
     for (const raw of parts) {
-      const evt = parseSseEvent(raw);
-      if (!evt) continue;
-
-      if (evt.name === "complete") {
-        // data is the function's return tuple: [video_file, file_again, seed].
-        // The first element is a Gradio FileData object containing `url`.
-        let payload: unknown;
-        try {
-          payload = JSON.parse(evt.data);
-        } catch {
-          throw new Error("Upstream returned malformed result payload.");
-        }
-        const first = Array.isArray(payload) ? payload[0] : null;
-        const url = extractVideoUrl(first);
-        if (!url) throw new Error("Job finished but no video URL was returned.");
-        return url;
-      }
-
-      if (evt.name === "error") {
-        // Errors come through as a JSON string in most cases.
-        let msg = evt.data;
-        try {
-          const parsed = JSON.parse(evt.data);
-          if (typeof parsed === "string") msg = parsed;
-        } catch {
-          /* leave msg as the raw data */
-        }
-        throw new Error(msg || "Upstream reported an error.");
-      }
-
-      // Anything else (generating, heartbeat, estimation) is just a sign of
-      // life. We don't act on it, the rotating loading message keeps the
-      // UI feeling alive.
+      const url = handleEvent(raw);
+      if (url) return url;
     }
+    if (done) break;
   }
 
-  // Stream closed without a "complete" event. This usually means the upstream
-  // hit its own queue/wall-clock limit or the connection dropped.
-  throw new Error("Connection closed before the video finished. Try again or shorten the duration.");
+  if (buffer.trim()) {
+    const url = handleEvent(buffer);
+    if (url) return url;
+  }
+  throw new Error("Hugging Face closed the stream before returning a video. This usually means the GPU job timed out or the Space stopped unexpectedly.");
 }
 
 /** Parse a single SSE event chunk into { name, data }. */
 function parseSseEvent(raw: string): { name: string; data: string } | null {
   let name = "message";
   const dataLines: string[] = [];
-  for (const line of raw.split("\n")) {
+  for (const line of raw.replace(/\r/g, "").split("\n")) {
     if (line.startsWith("event:")) {
       name = line.slice(6).trim();
     } else if (line.startsWith("data:")) {
