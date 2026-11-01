@@ -198,32 +198,20 @@ async function submitJob(
     meta: { _type: "gradio.FileData" },
   };
 
-  // Order matches Space's ui_inputs:
-  // [input_image, last_image, prompt, steps, negative_prompt,
-  //  duration_seconds, guidance_scale, guidance_scale_2, seed, randomize_seed,
-  //  quality, scheduler, flow_shift, frame_multiplier, safe_mode, play_result_video]
+  // Order verified against the replacement Space's app.py ui_inputs:
+  // [input_image, prompt, steps, negative_prompt, duration_seconds,
+  //  guidance_scale, guidance_scale_2, seed, randomize_seed]
   const data = [
     inputImage,
-    null, // last_image, optional second keyframe, we don't expose this in the UI
     params.prompt?.trim() || "make this image come alive, cinematic motion, smooth animation",
-    clampInt(params.steps ?? 6, 1, 12),
+    clampInt(params.steps ?? 4, 1, 8),
     DEFAULT_NEGATIVE_PROMPT,
-    // Upper bound matches the slider in web/src/components/Studio.astro. The
-    // free Space hits its wall-clock limit around five seconds and returns
-    // nothing at all, so anything above this is a request for a timeout. The
-    // Worker is the public endpoint, not the slider, so the cap belongs here
-    // too rather than only in the page.
-    clampFloat(params.duration_seconds ?? 3.5, 0.5, 4.5),
-    1,    // guidance_scale (kept at 1, higher values double GPU usage for marginal gains here)
+    // The fast Space supports 0.5–5 seconds; keep the UI's short duration.
+    clampFloat(params.duration_seconds ?? 2, 0.5, 5),
+    1,    // guidance_scale
     1,    // guidance_scale_2
-    42,   // seed (ignored when randomize_seed=true)
+    42,   // seed
     true, // randomize_seed
-    6,    // quality
-    "UniPCMultistep",
-    3.0,  // flow_shift
-    16,   // frame_multiplier (16 = no interpolation, the model's native FPS)
-    false, // safe_mode
-    true,  // play_result_video
   ];
 
   const res = await fetch(`${env.HF_SPACE_BASE}/gradio_api/call/${env.HF_FN_NAME}`, {
