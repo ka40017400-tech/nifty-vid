@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:4321,https://ka40017400-tech.github.io"
-HF_SPACE_BASE = "https://cbensimon-wan2-2-fp8da-aoti-preview2.hf.space"
+HF_SPACE_BASE = "https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space"
 HF_FN_NAME = "generate_video"
 
 [observability]
